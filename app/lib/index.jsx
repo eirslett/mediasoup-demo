@@ -5,7 +5,8 @@ import { render } from 'react-dom';
 import { Provider } from 'react-redux';
 import {
 	applyMiddleware as applyReduxMiddleware,
-	createStore as createReduxStore
+	createStore as createReduxStore,
+	compose as reduxCompose
 } from 'redux';
 import thunk from 'redux-thunk';
 import { createLogger as createReduxLogger } from 'redux-logger';
@@ -41,10 +42,12 @@ if (process.env.NODE_ENV === 'development')
 	reduxMiddlewares.push(reduxLogger);
 }
 
+const composeEnhancers = window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__ || reduxCompose;
+
 const store = createReduxStore(
 	reducers,
 	undefined,
-	applyReduxMiddleware(...reduxMiddlewares)
+	composeEnhancers(applyReduxMiddleware(...reduxMiddlewares))
 );
 
 domready(() =>

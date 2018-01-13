@@ -2,6 +2,11 @@
 
 const EventEmitter = require('events').EventEmitter;
 const protooServer = require('protoo-server');
+const sdpTransform = require('sdp-transform');
+const commonUtils = require('mediasoup-client/lib-es5/handlers/sdp/commonUtils');
+const ortc = require('mediasoup-client/lib-es5/ortc');
+const RemotePlanBSdp = require('mediasoup-client/lib-es5/handlers/sdp/RemotePlanBSdp').default;
+const sdpPlanBUtils = require('mediasoup-client/lib-es5/handlers/sdp/planBUtils');
 const Logger = require('./Logger');
 const config = require('../config');
 
@@ -404,6 +409,110 @@ class Room extends EventEmitter
 				break;
 			}
 
+			case 'newProducerSdp':
+			{
+                const { initialOfferSdp, remoteTransportSdp, kind, trackId } = request;
+
+                const rtpParametersByKind = {
+                    audio: ortc.getSendingRtpParameters(
+                        'audio',
+                        this._getExtendedRtpCapabilities(initialOfferSdp)
+                    ),
+                    video: ortc.getSendingRtpParameters(
+                        'video',
+                        this._getExtendedRtpCapabilities(initialOfferSdp)
+                    )
+                };
+
+                const sdpObj = sdpTransform.parse(initialOfferSdp);
+
+                console.log('initialOfferSdp', initialOfferSdp);
+
+                const dtlsParameters = commonUtils.extractDtlsParameters(sdpObj);
+
+                // Let's decide that we'll be DTLS server (because we can).
+                dtlsParameters.role = 'server';
+
+                const transportLocalParameters = { dtlsParameters };
+
+                const planB = new RemotePlanBSdp('send', rtpParametersByKind);
+
+                console.log('local params', transportLocalParameters);
+                console.log('remote params', remoteTransportSdp);
+
+                planB.setTransportLocalParameters(transportLocalParameters);
+                planB.setTransportRemoteParameters(remoteTransportSdp);
+
+                console.log('SDP', sdpTransform.write(sdpObj));
+
+                const answer = planB.createAnswerSdp(sdpObj);
+
+                const rtpParameters = JSON.parse(JSON.stringify(rtpParametersByKind[kind]));
+
+                // Fill the RTP parameters for this track.
+                sdpPlanBUtils.fillRtpParametersForTrack(
+                    rtpParameters, sdpObj, {
+                    	kind,
+						id: trackId
+					});
+
+                debugger;
+				accept({sdp: answer, rtpParameters });
+				break;
+			}
+
+			case 'newConsumerSdp':
+			{
+				if (!protooPeer.data.mediaPeer) {
+					reject(500, 'No mediasoup peer found for this connection');
+
+					break;
+				}
+
+				const { consumers, initialOfferSdp, remoteTransportSdp } = request;
+
+				if (!consumers || !initialOfferSdp || !remoteTransportSdp) {
+					console.log('OH NO PANIC', request);
+				}
+
+				const consumerList = consumers.map(c => c[1]);
+
+				const { mediaPeer } = protooPeer.data;
+
+				const rtpParametersByKind = {
+                	audio: ortc.getReceivingFullRtpParameters(
+                        'audio',
+                        this._getExtendedRtpCapabilities(initialOfferSdp)
+                    ),
+                    video: ortc.getReceivingFullRtpParameters(
+                        'video',
+                        this._getExtendedRtpCapabilities(initialOfferSdp)
+                    )
+                };
+
+                // Get our local DTLS parameters.
+                // const transportLocalParameters = {};
+                const sdpObj = sdpTransform.parse(initialOfferSdp);
+                console.log('Parsing initial offer', initialOfferSdp);
+                console.log('Got SDP obj', sdpObj);
+
+                const dtlsParameters = commonUtils.extractDtlsParameters(sdpObj);
+                const transportLocalParameters = { dtlsParameters };
+
+                const planB = new RemotePlanBSdp('recv', rtpParametersByKind);
+                planB.setTransportLocalParameters(transportLocalParameters);
+                planB.setTransportRemoteParameters(remoteTransportSdp);
+                const kinds = new Set(consumerList.map(c => c.kind));
+                const offer = planB.createOfferSdp(
+                	[...kinds],
+					consumerList
+				);
+
+				accept(offer);
+				break;
+
+			}
+
 			case 'join':
 			{
 				// TODO: Handle appData. Yes?
@@ -421,6 +530,16 @@ class Room extends EventEmitter
 
 					break;
 				}
+
+				/*
+				if (typeof request.rtpCapabilities === 'string') {
+					const extendedRtpCapabilities = this._getExtendedRtpCapabilities(request.rtpCapabilities);
+                    const effectiveClientRtpCapabilities = ortc.getRtpCapabilities(
+                        extendedRtpCapabilities
+                    );
+                    request.rtpCapabilities = effectiveClientRtpCapabilities;
+				}
+				*/
 
 				this._mediaRoom.receiveRequest(request)
 					.then((response) =>
@@ -460,6 +579,16 @@ class Room extends EventEmitter
 					.catch((error) => reject(500, error.toString()));
 			}
 		}
+	}
+
+	_getExtendedRtpCapabilities(rtpCapabilities) {
+        const sdpObj = sdpTransform.parse(rtpCapabilities);
+        const clientCapabilities = commonUtils.extractRtpCapabilities(sdpObj);
+        const roomCapabilities = this._mediaRoom.rtpCapabilities;
+        return ortc.getExtendedRtpCapabilities(
+            clientCapabilities,
+            roomCapabilities
+        );
 	}
 
 	_handleMediasoupClientNotification(protooPeer, notification)

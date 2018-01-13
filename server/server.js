@@ -83,8 +83,30 @@ const tls =
 
 const httpsServer = https.createServer(tls, (req, res) =>
 {
-	res.writeHead(404, 'Not Here');
-	res.end();
+	if (req.method !== 'POST') {
+		res.writeHead(400, 'Use POST method');
+		res.end();
+	} else {
+        const u = url.parse(req.url, true);
+        const roomId = u.query['roomId'];
+        const peerName = u.query['peerName'];
+
+        if (!roomId || !peerName)
+        {
+            logger.warn('connection request without roomId and/or peerName');
+
+            res.writeHead(400, 'Connection request without roomId and/or peerName');
+            res.end();
+
+            return;
+        }
+
+        logger.info(
+            'connection request [roomId:"%s", peerName:"%s"]', roomId, peerName);
+
+        res.writeHead(200, 'OK');
+        res.end();
+    }
 });
 
 httpsServer.listen(3443, '0.0.0.0', () =>
@@ -284,6 +306,7 @@ function openCommandConsole()
 						.catch((error) =>
 						{
 							stdinError(`peer.dump() failed: ${error}`);
+							console.error(error);
 							readStdin();
 						});
 
