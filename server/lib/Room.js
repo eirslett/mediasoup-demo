@@ -411,7 +411,7 @@ class Room extends EventEmitter
 
 			case 'newProducerSdp':
 			{
-                const { initialOfferSdp, remoteTransportSdp, kind, trackId } = request;
+                const { initialOfferSdp, remoteTransportSdp, kind, trackId, transportId, version } = request;
 
                 const rtpParametersByKind = {
                     audio: ortc.getSendingRtpParameters(
@@ -436,6 +436,8 @@ class Room extends EventEmitter
                 const transportLocalParameters = { dtlsParameters };
 
                 const planB = new RemotePlanBSdp('send', rtpParametersByKind);
+                planB._sdpGlobalFields.id = transportId;
+                planB._sdpGlobalFields.version = version;
 
                 console.log('local params', transportLocalParameters);
                 console.log('remote params', remoteTransportSdp);
@@ -469,7 +471,7 @@ class Room extends EventEmitter
 					break;
 				}
 
-				const { consumers, initialOfferSdp, remoteTransportSdp } = request;
+				const { consumers, initialOfferSdp, remoteTransportSdp, transportId, version } = request;
 
 				if (!consumers || !initialOfferSdp || !remoteTransportSdp) {
 					console.log('OH NO PANIC', request);
@@ -500,6 +502,8 @@ class Room extends EventEmitter
                 const transportLocalParameters = { dtlsParameters };
 
                 const planB = new RemotePlanBSdp('recv', rtpParametersByKind);
+                planB._sdpGlobalFields.id = transportId;
+                planB._sdpGlobalFields.version = version;
                 planB.setTransportLocalParameters(transportLocalParameters);
                 planB.setTransportRemoteParameters(remoteTransportSdp);
                 const kinds = new Set(consumerList.map(c => c.kind));
